@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "strict": false,
+    "outDir": "../.logs/verify-build",
+    "baseUrl": "..",
+    "paths": {
+      "@shared/*": ["src/shared/*"]
+    }
+  },
+  "include": [
+    "../src/main/market/eastmoney.ts",
+    "../src/main/market/types.ts",
+    "../src/shared/types.ts"
+  ]
+}

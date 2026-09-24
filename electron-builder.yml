@@ -1,0 +1,44 @@
+appId: com.stocklens.desktop
+productName: StockLens
+copyright: Copyright © 2026 StockLens
+
+directories:
+  buildResources: build
+  output: release/${version}
+
+files:
+  - out/**
+  - package.json
+  - '!**/*.{map,md,ts}'
+  - '!**/{.eslintrc,.editorconfig,.prettierrc}'
+
+asar: true
+compression: maximum
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: StockLens
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-Portable-${version}.${ext}
+
+publish: null
