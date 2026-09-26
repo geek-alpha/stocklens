@@ -1,4 +1,4 @@
-import type { Candle, NewsItem, Quote, SymbolHit } from '@shared/types'
+import type { Candle, IndexQuote, MarketRegion, NewsItem, Quote, SymbolHit } from '@shared/types'
 import { createThrottle, fetchText, MarketError, withRetry, type MarketProvider } from './types'
 
 /**
@@ -48,6 +48,99 @@ function easternTimeToEpoch(value: string): number {
 function toNumber(fields: string[], index: number): number {
   const value = Number.parseFloat(fields[index] ?? '')
   return Number.isFinite(value) ? value : 0
+}
+
+/**
+ * 全球主要指数。腾讯变量名前缀即市场归属，实测有效的只有沪深/香港/美国三地：
+ * 日经与欧洲指数的代码（jpNI225 / ukFTSE / deDAX / frCAC / krKOSPI / auXJO）
+ * 一律返回 v_pv_none_match，即该源不提供，不要凭想象往清单里加。
+ */
+export const GLOBAL_INDICES: ReadonlyArray<{
+  symbol: string
+  name: string
+  region: MarketRegion
+}> = [
+  { symbol: 'sh000001', name: '上证指数', region: 'CN' },
+  { symbol: 'sz399001', name: '深证成指', region: 'CN' },
+  { symbol: 'sz399006', name: '创业板指', region: 'CN' },
+  { symbol: 'sh000688', name: '科创50', region: 'CN' },
+  { symbol: 'sh000300', name: '沪深300', region: 'CN' },
+  { symbol: 'sz399005', name: '中小100', region: 'CN' },
+  { symbol: 'hkHSI', name: '恒生指数', region: 'HK' },
+  { symbol: 'hkHSTECH', name: '恒生科技指数', region: 'HK' },
+  { symbol: 'hkHSCEI', name: '国企指数', region: 'HK' },
+  { symbol: 'usDJI', name: '道琼斯', region: 'US' },
+  { symbol: 'usIXIC', name: '纳斯达克', region: 'US' },
+  { symbol: 'usINX', name: '标普500', region: 'US' }
+]
+
+/** 实测单次请求超过 12 个代码会被静默截断（第 13 个起不返回），指数与个股都受此限制 */
+export const TENCENT_BATCH_SIZE = 12
+
+const PREFIX_REGION: Record<string, MarketRegion> = {
+  sh: 'CN',
+  sz: 'CN',
+  hk: 'HK',
+  us: 'US'
+}
+
+/**
+ * 指数时间实测有三种格式，猜错时区会让「最新交易日」错一天，进而让快照写到错误日期：
+ *   沪深 20260924161401（北京时间）
+ *   港股 2026/09/25 18:31:13（北京时间）
+ *   美股 2026-09-25 17:05:01（美东时间，无时区标记）
+ */
+function indexTimeToEpoch(value: string, region: MarketRegion): number {
+  const trimmed = value.trim()
+  const fallback = Math.floor(Date.now() / 1000)
+
+  const compact = trimmed.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/)
+  if (compact) {
+    const parsed = Date.parse(
+      `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}+08:00`
+    )
+    return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : fallback
+  }
+
+  const slashed = trimmed.match(/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}:\d{2}:\d{2})$/)
+  if (slashed) {
+    const parsed = Date.parse(`${slashed[1]}-${slashed[2]}-${slashed[3]}T${slashed[4]}+08:00`)
+    return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : fallback
+  }
+
+  return region === 'US' ? easternTimeToEpoch(trimmed) : fallback
+}
+
+function parseIndexLine(line: string): IndexQuote | null {
+  const matched = line.match(/v_([a-z]{2})([A-Za-z0-9.\-]+)="([^"]*)"/)
+  if (!matched) return null
+
+  const fields = matched[3].split('~')
+  if (fields.length < 36) return null
+
+  const price = toNumber(fields, FIELD.price)
+  if (price <= 0) return null
+
+  const region = PREFIX_REGION[matched[1]] ?? 'OTHER'
+  const previousClose = toNumber(fields, FIELD.previousClose) || price
+  const change = toNumber(fields, FIELD.change)
+
+  // 成交额单位：沪深/港股是万元；美股同位置的数值口径无法确认，宁可为 0 也不编造单位
+  const rawAmount = toNumber(fields, FIELD.amount)
+  const amount = region === 'CN' || region === 'HK' ? rawAmount * 10_000 : 0
+
+  return {
+    symbol: `${matched[1]}${matched[2]}`,
+    name: fields[FIELD.name] || `${matched[1]}${matched[2]}`,
+    region,
+    price,
+    previousClose,
+    change: change || price - previousClose,
+    changePercent: toNumber(fields, FIELD.changePercent),
+    amount,
+    marketTime: indexTimeToEpoch(fields[FIELD.time] ?? '', region),
+    stale: false
+  }
 }
 
 function parseQuoteLine(line: string): Quote | null {
@@ -110,6 +203,34 @@ export class TencentProvider implements MarketProvider {
 
     if (quotes.length === 0) {
       throw new MarketError('腾讯财经未返回任何报价', 'notfound')
+    }
+    return quotes
+  }
+
+  /**
+   * 指数报价。与个股共用同一接口，但变量名前缀是市场代码而不是 us，
+   * 所以必须走独立正则——parseQuoteLine 写死了 /v_us/，A股/港股会被整条丢弃。
+   */
+  async getIndices(symbols: readonly string[] = GLOBAL_INDICES.map((i) => i.symbol)): Promise<
+    IndexQuote[]
+  > {
+    if (symbols.length === 0) return []
+
+    const quotes: IndexQuote[] = []
+    for (let i = 0; i < symbols.length; i += TENCENT_BATCH_SIZE) {
+      const batch = symbols.slice(i, i + TENCENT_BATCH_SIZE)
+      const url = `${BASE}${batch.join(',')}`
+      const text = await throttle(() =>
+        withRetry(() => fetchText(url, { headers: { Referer: 'https://gu.qq.com/' } }, 12_000, 'gbk'))
+      )
+      for (const line of text.split('\n')) {
+        const quote = parseIndexLine(line)
+        if (quote) quotes.push(quote)
+      }
+    }
+
+    if (quotes.length === 0) {
+      throw new MarketError('腾讯财经未返回任何指数行情', 'notfound')
     }
     return quotes
   }

@@ -8,8 +8,11 @@ import type {
   BarRange,
   CandleSeries,
   LicenseState,
+  MarketBoard,
   NewsItem,
   Quote,
+  SectorRotation,
+  SectorTrendPoint,
   SymbolHit
 } from './types'
 
@@ -27,6 +30,13 @@ export interface StockLensApi {
   getCandles(symbol: string, interval: BarInterval, range: BarRange): Promise<CandleSeries>
   searchSymbols(query: string): Promise<SymbolHit[]>
   getNews(symbol: string): Promise<NewsItem[]>
+
+  /** 市场看板：全球指数 + A股板块快照，60 秒内复用同一份 */
+  getBoard(force?: boolean): Promise<MarketBoard>
+  /** 单个板块的相对强度轨迹；历史不足时返回空数组，别当成「该板块没数据」 */
+  getSectorTrend(code: string, days?: number): Promise<SectorTrendPoint[]>
+  /** 产业轮动排行，按近 N 日相对强度累计 */
+  getRotation(limit?: number, days?: number): Promise<SectorRotation>
 
   getLicense(): Promise<LicenseState>
   activateLicense(key: string, licensee: string): Promise<LicenseState>

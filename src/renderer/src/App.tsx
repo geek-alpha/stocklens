@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import AiPanel from './components/AiPanel'
 import ChartPanel from './components/ChartPanel'
 import LicenseDialog from './components/LicenseDialog'
+import MarketBoard from './components/MarketBoard'
 import QuoteHeader from './components/QuoteHeader'
 import SettingsDialog from './components/SettingsDialog'
 import StatusBar from './components/StatusBar'
@@ -19,6 +20,7 @@ export default function App() {
   const setToast = useAppStore((s) => s.setToast)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const aiPanelOpen = useAppStore((s) => s.aiPanelOpen)
+  const activeView = useAppStore((s) => s.activeView)
   const ready = useAppStore((s) => s.ready)
 
   useEffect(() => {
@@ -50,8 +52,14 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? <WatchList /> : null}
         <main className="flex min-w-0 flex-1 flex-col">
-          <QuoteHeader />
-          <ChartPanel />
+          {activeView === 'board' ? (
+            <MarketBoard />
+          ) : (
+            <>
+              <QuoteHeader />
+              <ChartPanel />
+            </>
+          )}
         </main>
         {aiPanelOpen ? <AiPanel /> : null}
       </div>

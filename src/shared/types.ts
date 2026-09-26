@@ -111,7 +111,7 @@ export interface AppInfo {
   packaged: boolean
 }
 
-export type AiTask = 'brief' | 'technical' | 'news' | 'screen' | 'chat'
+export type AiTask = 'brief' | 'technical' | 'news' | 'screen' | 'rotation' | 'chat'
 
 export interface AiChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -127,6 +127,8 @@ export interface AiAnalyzeRequest {
   history?: AiChatMessage[]
   /** 结构化上下文：行情快照、K线摘要等，由主进程序列化给模型 */
   context?: AiContextPayload
+  /** 请主进程附上市场看板（全球指数 + A股板块 + 轮动）。看板视图与产业轮动任务需要它 */
+  includeBoard?: boolean
 }
 
 export interface AiContextPayload {
@@ -134,6 +136,12 @@ export interface AiContextPayload {
   candles?: Candle[]
   news?: NewsItem[]
   watchlistQuotes?: Quote[]
+  /**
+   * 市场看板快照，只由主进程填充。
+   * 渲染进程传了也会被主进程覆盖——这些数字要进模型判断，不能来自不可信输入。
+   */
+  board?: MarketBoard
+  rotation?: SectorRotation
 }
 
 export interface AiStreamChunk {
@@ -147,4 +155,84 @@ export interface AiResult {
   requestId: string
   ok: boolean
   error?: string
+}
+
+/* ---------- 市场看板：判断资本流向与产业轮动 ---------- */
+
+export type MarketRegion = 'CN' | 'HK' | 'US' | 'JP' | 'EU' | 'OTHER'
+
+export interface IndexQuote {
+  /** 带市场前缀的代码，如 sh000001 / hkHSI / usIXIC */
+  symbol: string
+  name: string
+  region: MarketRegion
+  price: number
+  previousClose: number
+  change: number
+  changePercent: number
+  /** 成交额（本币）；部分市场不提供时为 0 */
+  amount: number
+  /** 交易所时间，epoch 秒 */
+  marketTime: number
+  stale: boolean
+}
+
+export type SectorKind = 'industry' | 'concept'
+
+export interface SectorLeader {
+  symbol: string
+  name: string
+  changePercent: number
+}
+
+export interface SectorSnapshot {
+  code: string
+  name: string
+  kind: SectorKind
+  memberCount: number
+  changePercent: number
+  /** 板块成交额（元） */
+  amount: number
+  leader: SectorLeader | null
+  /**
+   * 相对基准（沪深300）的超额收益，单位百分点。
+   * 需要历史快照累积才有值，首次运行时为 null——单日涨跌幅无法区分「持续走强」和「一日反弹」。
+   */
+  relativeStrength: number | null
+  /** 该板块成交额占两市成交额比重，% */
+  amountShare: number | null
+}
+
+export interface MarketBoard {
+  fetchedAt: number
+  /** 板块数据对应的交易日 YYYY-MM-DD，快照落盘按它判重 */
+  tradeDate: string
+  source: string
+  indices: IndexQuote[]
+  industries: SectorSnapshot[]
+  concepts: SectorSnapshot[]
+  /** 本次抓取到的全市场成交额（元） */
+  totalAmount: number
+}
+
+/** 单个板块的逐日轨迹，产业兴衰看的是它的斜率而不是某一天的值 */
+export interface SectorTrendPoint {
+  date: string
+  changePercent: number
+  amount: number
+  amountShare: number | null
+  relativeStrength: number | null
+}
+
+/** 产业轮动排行：rising/falling 里的 relativeStrength 在 cumulative 口径下是累计值 */
+export interface SectorRotation {
+  /**
+   * single-day=历史快照不足 2 天，只能按当日涨跌幅排，此时看不出趋势；
+   * cumulative=按近 N 日相对强度累计排，这才是判断产业兴衰的口径。
+   */
+  basis: 'single-day' | 'cumulative'
+  /** 已累积的交易日数量，界面用它提示「趋势还要攒几天」 */
+  historyDays: number
+  rising: SectorSnapshot[]
+  falling: SectorSnapshot[]
 }

@@ -34,6 +34,10 @@ const api: StockLensApi = {
   searchSymbols: (query) => invoke(IPC.searchSymbols, query),
   getNews: (symbol) => invoke(IPC.newsGet, symbol),
 
+  getBoard: (force) => invoke(IPC.boardGet, force),
+  getSectorTrend: (code, days) => invoke(IPC.sectorTrend, code, days),
+  getRotation: (limit, days) => invoke(IPC.rotationGet, limit, days),
+
   getLicense: () => invoke(IPC.licenseGet),
   activateLicense: (key, licensee) => invoke(IPC.licenseActivate, key, licensee),
 

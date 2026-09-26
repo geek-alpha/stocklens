@@ -9,7 +9,9 @@ import type {
   BarRange,
   Candle,
   LicenseState,
-  Quote
+  MarketBoard,
+  Quote,
+  SectorRotation
 } from '@shared/types'
 import { api, errorMessage, newRequestId } from '@renderer/lib/api'
 
@@ -33,6 +35,7 @@ export const TASK_LABELS: Record<AiTask, string> = {
   technical: '技术面分析',
   news: '新闻解读',
   screen: '智能选股',
+  rotation: '产业轮动研判',
   chat: '自由对话'
 }
 
@@ -57,6 +60,11 @@ interface AppState {
   licenseOpen: boolean
   sidebarOpen: boolean
   aiPanelOpen: boolean
+  /** stock=个股看盘，board=市场看板 */
+  activeView: 'stock' | 'board'
+  board: MarketBoard | null
+  rotation: SectorRotation | null
+  boardLoading: boolean
 
   bootstrap: () => Promise<void>
   refreshQuotes: () => Promise<void>
@@ -71,6 +79,8 @@ interface AppState {
   setLicenseOpen: (open: boolean) => void
   toggleSidebar: () => void
   toggleAiPanel: () => void
+  setView: (view: 'stock' | 'board') => void
+  refreshBoard: (force?: boolean) => Promise<void>
   refreshLicense: () => Promise<void>
   runAi: (task: AiTask, prompt?: string) => Promise<void>
   stopAi: () => void
@@ -99,6 +109,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   licenseOpen: false,
   sidebarOpen: true,
   aiPanelOpen: true,
+  activeView: 'stock',
+  board: null,
+  rotation: null,
+  boardLoading: false,
 
   bootstrap: async () => {
     try {
@@ -212,6 +226,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   toggleAiPanel: () => set((state) => ({ aiPanelOpen: !state.aiPanelOpen })),
 
+  setView: (view) => {
+    set({ activeView: view })
+    // 只在首次切到看板时自动拉，之后靠手动刷新，免得来回切视图反复打接口
+    if (view === 'board' && !get().board) void get().refreshBoard()
+  },
+
+  refreshBoard: async (force = false) => {
+    if (get().boardLoading) return
+    set({ boardLoading: true })
+    try {
+      // 轮动列表取 10 条：看板同时要展示板块全景，取太多会把表格挤出视口
+      const [board, rotation] = await Promise.all([api.getBoard(force), api.getRotation(10, 20)])
+      set({ board, rotation })
+    } catch (err) {
+      get().setToast({ kind: 'error', message: `市场看板加载失败：${errorMessage(err)}` })
+    } finally {
+      set({ boardLoading: false })
+    }
+  },
+
   refreshLicense: async () => {
     try {
       set({ license: await api.getLicense() })
@@ -226,7 +260,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
-    const { activeSymbol, candles, quotes } = get()
+    const { activeSymbol, candles, quotes, activeView } = get()
     const requestId = newRequestId()
     const assistantId = newRequestId()
     const userText = prompt?.trim() || TASK_LABELS[task]
@@ -254,6 +288,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         symbol: activeSymbol,
         prompt,
         history,
+        // 看板视图下随口问「什么产业在崛起」也得答得出来；其余场景不带，省 token
+        includeBoard: task === 'rotation' || activeView === 'board',
         context: {
           quote: quotes[activeSymbol],
           candles,

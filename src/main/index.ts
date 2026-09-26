@@ -34,12 +34,30 @@ function createWindow(): void {
   })
 
   // 无头环境自检：STOCKLENS_SMOKE=<png 路径> 时截图后退出，用于 CI 与打包后冒烟
+  // STOCKLENS_SMOKE_CLICK=<按钮文案> 可先点一下某个按钮再截，用来验证非默认视图
   const smokeTarget = process.env['STOCKLENS_SMOKE']
   if (smokeTarget) {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(() => {
         void (async () => {
           try {
+            const clickText = process.env['STOCKLENS_SMOKE_CLICK']
+            if (clickText) {
+              const clicked = await mainWindow?.webContents.executeJavaScript(
+                `(() => {
+                  const target = [...document.querySelectorAll('button')]
+                    .find((b) => b.textContent.trim() === ${JSON.stringify(clickText)})
+                  if (!target) return false
+                  target.click()
+                  return true
+                })()`
+              )
+              if (clicked) {
+                // 切换视图后要等网络抓取与渲染落地，否则截到的是空骨架
+                await new Promise((resolve) => setTimeout(resolve, 5000))
+              }
+            }
+
             const image = await mainWindow?.webContents.capturePage()
             if (image) {
               await writeFile(smokeTarget, image.toPNG())

@@ -7,7 +7,8 @@ import {
   Newspaper,
   Search,
   Send,
-  Sparkles
+  Sparkles,
+  TrendingUp
 } from 'lucide-react'
 import type { AiTask } from '@shared/types'
 import { TASK_LABELS, useAppStore, type AiMessage } from '@renderer/store/useAppStore'
@@ -16,6 +17,7 @@ const QUICK_TASKS: Array<{ task: AiTask; label: string; icon: typeof Sparkles }>
   { task: 'brief', label: '盘面速读', icon: Sparkles },
   { task: 'technical', label: '技术面', icon: ChartLine },
   { task: 'news', label: '新闻解读', icon: Newspaper },
+  { task: 'rotation', label: '产业轮动', icon: TrendingUp },
   { task: 'screen', label: '智能选股', icon: Search }
 ]
 
@@ -221,7 +223,7 @@ export default function AiPanel() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-4 gap-1 border-b border-surface-700 p-2">
+      <div className="grid grid-cols-5 gap-1 border-b border-surface-700 p-2">
         {QUICK_TASKS.map(({ task, label, icon: Icon }) => (
           <button
             key={task}
