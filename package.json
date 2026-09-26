@@ -1,6 +1,6 @@
 {
   "name": "stocklens",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "StockLens - 美股实时看盘与 AI 决策辅助终端",
   "main": "./out/main/index.js",
   "author": "StockLens",
