@@ -30,6 +30,25 @@ export function changeClass(value: number | null | undefined): string {
   return value > 0 ? 'text-bull' : 'text-bear'
 }
 
+/**
+ * A股口径：红涨绿跌，与美股相反。
+ * 市场看板的主体是 A 股板块，用错口径会让投资者把涨看成跌。
+ */
+export function cnChangeClass(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value) || value === 0) return 'text-slate-400'
+  return value > 0 ? 'text-bear' : 'text-bull'
+}
+
+/** 成交额（元）按中文习惯缩写 */
+export function fmtAmount(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value) || value === 0) return '—'
+  const abs = Math.abs(value)
+  if (abs >= 1e12) return `${(value / 1e12).toFixed(2)}万亿`
+  if (abs >= 1e8) return `${(value / 1e8).toFixed(0)}亿`
+  if (abs >= 1e4) return `${(value / 1e4).toFixed(0)}万`
+  return value.toFixed(0)
+}
+
 export function fmtClock(epochSeconds: number | null | undefined): string {
   if (!epochSeconds) return '—'
   return format(new Date(epochSeconds * 1000), 'MM-dd HH:mm')

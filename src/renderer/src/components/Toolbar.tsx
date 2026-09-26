@@ -11,6 +11,11 @@ interface IntervalOption {
   range: BarRange
 }
 
+const VIEW_OPTIONS: Array<{ key: 'stock' | 'board'; label: string }> = [
+  { key: 'stock', label: '个股' },
+  { key: 'board', label: '市场看板' }
+]
+
 const INTERVAL_OPTIONS: IntervalOption[] = [
   { key: '1m', label: '1分', range: '1d' },
   { key: '5m', label: '5分', range: '5d' },
@@ -35,6 +40,8 @@ export default function Toolbar() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const toggleAiPanel = useAppStore((s) => s.toggleAiPanel)
   const setToast = useAppStore((s) => s.setToast)
+  const activeView = useAppStore((s) => s.activeView)
+  const setView = useAppStore((s) => s.setView)
 
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SymbolHit[]>([])
@@ -120,10 +127,26 @@ export default function Toolbar() {
 
       <div className="mr-1 flex items-center gap-2">
         <span className="text-sm font-semibold tracking-wide text-slate-100">StockLens</span>
-        <span className="rounded bg-surface-700 px-1.5 py-0.5 text-[10px] text-slate-400">美股</span>
+        <div className="flex items-center gap-0.5 rounded border border-surface-700 bg-surface-800 p-0.5">
+          {VIEW_OPTIONS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setView(option.key)}
+              className={`rounded px-2 py-0.5 text-xs transition ${
+                activeView === option.key
+                  ? 'bg-accent text-white'
+                  : 'text-slate-400 hover:bg-surface-700 hover:text-slate-200'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div ref={boxRef} className="relative w-72">
+      {/* 搜索与周期选择只对个股视图有意义，看板视图下收起，不占宽度 */}
+      <div ref={boxRef} className={activeView === 'stock' ? 'relative w-72' : 'hidden'}>
         <div className="flex items-center gap-2 rounded border border-surface-700 bg-surface-800 px-2 py-1.5 focus-within:border-accent">
           <Search size={14} className="text-slate-500" />
           <input
@@ -172,7 +195,13 @@ export default function Toolbar() {
         ) : null}
       </div>
 
-      <div className="ml-2 flex items-center gap-0.5 rounded border border-surface-700 bg-surface-800 p-0.5">
+      <div
+        className={
+          activeView === 'stock'
+            ? 'ml-2 flex items-center gap-0.5 rounded border border-surface-700 bg-surface-800 p-0.5'
+            : 'hidden'
+        }
+      >
         {INTERVAL_OPTIONS.map((option) => (
           <button
             key={option.key}

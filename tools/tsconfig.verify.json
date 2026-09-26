@@ -14,6 +14,9 @@
   },
   "include": [
     "../src/main/market/eastmoney.ts",
+    "../src/main/market/tencent.ts",
+    "../src/main/market/sina_board.ts",
+    "../src/main/market/snapshot.ts",
     "../src/main/market/types.ts",
     "../src/shared/types.ts"
   ]

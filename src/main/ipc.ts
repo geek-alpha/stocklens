@@ -11,17 +11,26 @@ import type {
 import { AiService } from './ai/client'
 import { activateLicense, getLicenseState } from './license'
 import { MarketService } from './market'
+import { MarketBoardService } from './market/board'
 import { getPublicSettings, getSettings, saveSettings } from './store'
 
 const VALID_INTERVALS: BarInterval[] = ['1m', '5m', '15m', '30m', '1h', '1d', '1wk', '1mo']
 const VALID_RANGES: BarRange[] = ['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'max']
 const VALID_TASKS: AiTask[] = ['brief', 'technical', 'news', 'screen', 'chat']
 
+/** 渲染进程传来的数值一律夹到合法区间，避免 NaN / 超大值穿透到数据层 */
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(Math.trunc(parsed), min), max)
+}
+
 /**
  * IPC 路由。渲染进程传来的一切都当作不可信输入，逐项校验后再用。
  */
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   const market = new MarketService(() => getSettings())
+  const board = new MarketBoardService()
   const ai = new AiService(() => getSettings(), (chunk) => {
     const win = getWindow()
     if (win && !win.isDestroyed()) {
@@ -83,6 +92,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (typeof symbol !== 'string' || !symbol.trim()) throw new Error('参数错误：缺少股票代码')
     return market.getNews(symbol.trim().toUpperCase())
   })
+
+  ipcMain.handle(IPC.boardGet, async (_event, force: unknown) => board.getBoard(force === true))
+
+  ipcMain.handle(IPC.sectorTrend, async (_event, code: unknown, days: unknown) => {
+    if (typeof code !== 'string' || !code.trim()) throw new Error('参数错误：缺少板块代码')
+    return board.getSectorTrend(code.trim().slice(0, 40), clampInt(days, 2, 250, 60))
+  })
+
+  ipcMain.handle(IPC.rotationGet, async (_event, limit: unknown, days: unknown) =>
+    board.getRotation(clampInt(limit, 5, 100, 20), clampInt(days, 2, 250, 20))
+  )
 
   ipcMain.handle(IPC.licenseGet, () => getLicenseState())
 

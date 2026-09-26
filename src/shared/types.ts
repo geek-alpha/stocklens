@@ -148,3 +148,83 @@ export interface AiResult {
   ok: boolean
   error?: string
 }
+
+/* ---------- 市场看板：判断资本流向与产业轮动 ---------- */
+
+export type MarketRegion = 'CN' | 'HK' | 'US' | 'JP' | 'EU' | 'OTHER'
+
+export interface IndexQuote {
+  /** 带市场前缀的代码，如 sh000001 / hkHSI / usIXIC */
+  symbol: string
+  name: string
+  region: MarketRegion
+  price: number
+  previousClose: number
+  change: number
+  changePercent: number
+  /** 成交额（本币）；部分市场不提供时为 0 */
+  amount: number
+  /** 交易所时间，epoch 秒 */
+  marketTime: number
+  stale: boolean
+}
+
+export type SectorKind = 'industry' | 'concept'
+
+export interface SectorLeader {
+  symbol: string
+  name: string
+  changePercent: number
+}
+
+export interface SectorSnapshot {
+  code: string
+  name: string
+  kind: SectorKind
+  memberCount: number
+  changePercent: number
+  /** 板块成交额（元） */
+  amount: number
+  leader: SectorLeader | null
+  /**
+   * 相对基准（沪深300）的超额收益，单位百分点。
+   * 需要历史快照累积才有值，首次运行时为 null——单日涨跌幅无法区分「持续走强」和「一日反弹」。
+   */
+  relativeStrength: number | null
+  /** 该板块成交额占两市成交额比重，% */
+  amountShare: number | null
+}
+
+export interface MarketBoard {
+  fetchedAt: number
+  /** 板块数据对应的交易日 YYYY-MM-DD，快照落盘按它判重 */
+  tradeDate: string
+  source: string
+  indices: IndexQuote[]
+  industries: SectorSnapshot[]
+  concepts: SectorSnapshot[]
+  /** 本次抓取到的全市场成交额（元） */
+  totalAmount: number
+}
+
+/** 单个板块的逐日轨迹，产业兴衰看的是它的斜率而不是某一天的值 */
+export interface SectorTrendPoint {
+  date: string
+  changePercent: number
+  amount: number
+  amountShare: number | null
+  relativeStrength: number | null
+}
+
+/** 产业轮动排行：rising/falling 里的 relativeStrength 在 cumulative 口径下是累计值 */
+export interface SectorRotation {
+  /**
+   * single-day=历史快照不足 2 天，只能按当日涨跌幅排，此时看不出趋势；
+   * cumulative=按近 N 日相对强度累计排，这才是判断产业兴衰的口径。
+   */
+  basis: 'single-day' | 'cumulative'
+  /** 已累积的交易日数量，界面用它提示「趋势还要攒几天」 */
+  historyDays: number
+  rising: SectorSnapshot[]
+  falling: SectorSnapshot[]
+}
