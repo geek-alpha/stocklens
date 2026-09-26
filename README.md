@@ -1,6 +1,6 @@
 # StockLens
 
-美股实时看盘 + AI 决策辅助桌面终端。Electron + React + TypeScript，一条命令打包成 Windows 安装包 / 便携版 exe。
+全球指数 + A 股板块轮动看盘终端，带 AI 决策辅助。Electron + React + TypeScript，一条命令打包成 Windows 安装包 / 便携版 exe。
 
 ---
 
@@ -13,11 +13,18 @@
 - 报价头：昨收、今开区间、52 周区间、成交量、交易所、数据时间
 - 代码/公司名搜索，带键盘上下选择
 
+**市场看板**
+- 全球指数一屏看全：沪深 / 香港 / 美国共 12 个（上证、深证、创业板、科创50、恒生、恒生科技、道指、纳指、标普…）
+- A 股板块全景：49 个行业 + 175 个概念，带涨跌幅、成交额、领涨股
+- 资金主战场排序：按成交额占比看当天钱在哪儿
+- 产业轮动：每日收盘后自动落盘板块快照，累积后按相对沪深300 的超额收益排出「谁在走强、谁在退潮」
+
 **AI 决策助手**（OpenAI 兼容协议，支持 OpenAI / DeepSeek / Moonshot / 自建网关）
-- 盘面速读、技术面深度分析、新闻解读、智能选股四个一键任务
+- 盘面速读、技术面深度分析、新闻解读、智能选股、产业轮动五个一键任务
 - 自由对话（保留上下文，可追问）
 - 流式输出 + 停止生成
 - **技术指标由主进程精确计算后喂给模型**（MA / RSI / MACD / ATR / 量比），不让模型自己算数——这是同类工具最常见的错误来源
+- 产业轮动任务把全球指数、49 个行业板块、概念板块超额最强/最弱、资金主战场一并喂给模型；历史快照不足 2 天时提示词里会明写「单日超额分不清持续走强和一日反弹」，不让模型据此编趋势
 
 **商业化**
 - Ed25519 离线许可证：应用内只带公钥，私钥在发行方手里，可一机一码或通用授权
@@ -33,6 +40,9 @@ npm install
 npm run dev          # 开发模式（热重载）
 npm run typecheck    # 类型检查（主进程 + 渲染进程）
 npm run build        # 构建到 out/
+npm run check        # 类型检查 + 构建（提交前跑这个）
+npm run verify:board # 板块解析口径离线验证（39 项断言）
+npm run snapshot:board  # 抓一次板块快照落盘（产业轮动靠它攒趋势）
 ```
 
 ### 打包 Windows exe
@@ -81,8 +91,12 @@ src/
     store.ts       配置持久化 + API Key 加密
     market/        行情适配器（按能力组降级链）
       types.ts     适配器接口 + 超时/重试/节流工具
-      tencent.ts   腾讯财经 · 报价（一次多股）
+      tencent.ts   腾讯财经 · 报价（一次多股）+ 全球指数
       sina.ts      新浪财经 · 报价（备用）
+      sina_board.ts 新浪财经 · A 股行业/概念板块
+      board.ts     市场看板服务：指数 + 板块 + 快照读写
+      compose.ts   看板组装与轮动排序（纯函数，不依赖 Electron，脚本与主进程共用一份口径）
+      snapshot.ts  板块快照落盘 + 写盘前质检
       eastmoney.ts 东方财富 · K 线 + 搜索
       yahoo.ts     Yahoo Finance · 全能力兜底
       finnhub.ts   Finnhub · 需自备 Key
@@ -97,8 +111,10 @@ src/
     components/    Toolbar / WatchList / QuoteHeader / ChartPanel / AiPanel / 设置 / 激活
     store/         zustand 状态
 tools/
-  make-icon.mjs    生成应用图标（零依赖手写 PNG）
-  sign-license.mjs 许可证签发（发行方专用，私钥不入包）
+  make-icon.mjs      生成应用图标（零依赖手写 PNG）
+  sign-license.mjs   许可证签发（发行方专用，私钥不入包）
+  snapshot-board.mjs 抓一次板块快照落盘（脱离 Electron，供 cron / 计划任务调用）
+  verify-*.mjs       离线验证脚本：解析口径、prompt 组装、真实网络端到端
 ```
 
 ---
@@ -127,6 +143,8 @@ node tools/sign-license.mjs --licensee "某某公司" --plan lifetime --machine 
 | K 线 | 东方财富 → Yahoo |
 | 搜索 | 东方财富 → Yahoo |
 | 新闻 | Yahoo |
+| 全球指数 | 腾讯财经 |
+| A 股板块 | 新浪财经（行业 + 概念） |
 
 这套设计是为了可用性——单一数据源在国内网络环境下很容易整条链路挂掉（实测 Yahoo 常返回 429、东财请求过密会直接断 TLS）。
 
@@ -157,7 +175,10 @@ node tools/sign-license.mjs --licensee "某某公司" --plan lifetime --machine 
 
 ## 已知边界
 
-- 仅支持美股；港股/A 股需另接适配器
+- 个股行情目前只覆盖美股；指数已覆盖沪深 / 香港 / 美国三地，A 股个股需另接适配器
+- 板块数据来自新浪，覆盖 49 个行业 + 175 个概念；东方财富板块更全（500+），但接口对高频请求会封 IP
+- 日经、欧洲指数当前数据源不提供（腾讯对这两个代码返回 `v_pv_none_match`），需另接适配器
+- 产业轮动至少需要 2 个交易日的快照才能出趋势，头几天看板上会明示「历史快照不足」
 - 实时性取决于数据源，非交易所直连，不适合做高频/套利决策
 - 打包产物未做代码签名，Windows SmartScreen 会提示"未知发布者"。正式售卖建议购买代码签名证书（OV/EV），在 `electron-builder.yml` 里配 `certificateFile` / `certificatePassword`
 - AI 输出仅供研究参考，不构成投资建议；界面上已固定展示该提示
