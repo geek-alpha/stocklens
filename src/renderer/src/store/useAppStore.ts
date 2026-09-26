@@ -35,6 +35,7 @@ export const TASK_LABELS: Record<AiTask, string> = {
   technical: '技术面分析',
   news: '新闻解读',
   screen: '智能选股',
+  rotation: '产业轮动研判',
   chat: '自由对话'
 }
 
@@ -259,7 +260,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
-    const { activeSymbol, candles, quotes } = get()
+    const { activeSymbol, candles, quotes, activeView } = get()
     const requestId = newRequestId()
     const assistantId = newRequestId()
     const userText = prompt?.trim() || TASK_LABELS[task]
@@ -287,6 +288,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         symbol: activeSymbol,
         prompt,
         history,
+        // 看板视图下随口问「什么产业在崛起」也得答得出来；其余场景不带，省 token
+        includeBoard: task === 'rotation' || activeView === 'board',
         context: {
           quote: quotes[activeSymbol],
           candles,

@@ -1,8 +1,9 @@
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { IndexQuote, MarketBoard, SectorSnapshot, SectorTrendPoint } from '@shared/types'
+import type { MarketBoard, SectorRotation, SectorTrendPoint } from '@shared/types'
+import { composeBoard, computeRotation } from './compose'
 import { SinaBoardProvider } from './sina_board'
-import { BENCHMARK_SYMBOL, SectorHistory } from './snapshot'
+import { SectorHistory } from './snapshot'
 import { TencentProvider } from './tencent'
 
 /**
@@ -17,15 +18,6 @@ import { TencentProvider } from './tencent'
  */
 
 const BOARD_TTL = 60_000
-
-/** 板块涨跌幅是相对上证/深证算的，基准必须用沪深300才能横向比较 */
-function tradeDateOf(indices: IndexQuote[]): string {
-  const cn = indices.filter((i) => i.region === 'CN' && i.marketTime > 0)
-  const pool = cn.length > 0 ? cn : indices
-  const latest = pool.reduce((max, i) => (i.marketTime > max ? i.marketTime : max), 0)
-  const at = latest > 0 ? new Date(latest * 1000) : new Date()
-  return at.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-}
 
 export class MarketBoardService {
   private readonly tencent = new TencentProvider()
@@ -48,26 +40,7 @@ export class MarketBoardService {
       this.sectors.getSectors('concept')
     ])
 
-    // 概念板块之间成分股高度重叠，加总会重复计算；行业板块近似互斥，用它代表全市场
-    const totalAmount = industries.reduce((sum, s) => sum + s.amount, 0)
-    const benchmark = indices.find((i) => i.symbol === BENCHMARK_SYMBOL)?.changePercent ?? 0
-
-    const decorate = (list: SectorSnapshot[]): SectorSnapshot[] =>
-      list.map((sector) => ({
-        ...sector,
-        amountShare: totalAmount > 0 ? (sector.amount / totalAmount) * 100 : null,
-        relativeStrength: sector.changePercent - benchmark
-      }))
-
-    const board: MarketBoard = {
-      fetchedAt: Math.floor(Date.now() / 1000),
-      tradeDate: tradeDateOf(indices),
-      source: 'tencent+sina-board',
-      indices,
-      industries: decorate(industries),
-      concepts: decorate(concepts),
-      totalAmount
-    }
+    const board = composeBoard(indices, industries, concepts)
 
     await this.history.save(board)
     this.cached = { at: Date.now(), value: board }
@@ -82,48 +55,11 @@ export class MarketBoardService {
 
   /**
    * 按「近 N 日相对强度累计」排出的强势/弱势板块。
-   * 只在历史不足时退回单日排序，并在返回里标明用的是哪种口径。
+   * 口径选择与排序在 compose.ts，与离线快照脚本共用同一份。
    */
-  async getRotation(limit = 20, days = 20): Promise<{
-    basis: 'single-day' | 'cumulative'
-    historyDays: number
-    rising: SectorSnapshot[]
-    falling: SectorSnapshot[]
-  }> {
+  async getRotation(limit = 20, days = 20): Promise<SectorRotation> {
     const board = await this.getBoard()
-    const all = [...board.industries, ...board.concepts]
-    const stats = await this.history.stats()
-
-    if (stats.days < 2) {
-      const sorted = [...all].sort((a, b) => (b.relativeStrength ?? 0) - (a.relativeStrength ?? 0))
-      return {
-        basis: 'single-day',
-        historyDays: stats.days,
-        rising: sorted.slice(0, limit),
-        falling: sorted.slice(-limit).reverse()
-      }
-    }
-
-    const trends = await this.history.trends(days)
-    const scored = all.map((sector) => {
-      const series = trends.get(sector.code) ?? []
-      const cumulative = series.reduce((sum, p) => sum + (p.relativeStrength ?? 0), 0)
-      return { sector, cumulative }
-    })
-
-    scored.sort((a, b) => b.cumulative - a.cumulative)
-    return {
-      basis: 'cumulative',
-      historyDays: stats.days,
-      rising: scored.slice(0, limit).map((s) => ({
-        ...s.sector,
-        relativeStrength: s.cumulative
-      })),
-      falling: scored
-        .slice(-limit)
-        .reverse()
-        .map((s) => ({ ...s.sector, relativeStrength: s.cumulative }))
-    }
+    return computeRotation(this.history, board.industries, board.concepts, limit, days)
   }
 
   async getHistoryStats(): Promise<{ days: number; from: string | null; to: string | null }> {

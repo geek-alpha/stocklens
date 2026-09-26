@@ -111,7 +111,7 @@ export interface AppInfo {
   packaged: boolean
 }
 
-export type AiTask = 'brief' | 'technical' | 'news' | 'screen' | 'chat'
+export type AiTask = 'brief' | 'technical' | 'news' | 'screen' | 'rotation' | 'chat'
 
 export interface AiChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -127,6 +127,8 @@ export interface AiAnalyzeRequest {
   history?: AiChatMessage[]
   /** 结构化上下文：行情快照、K线摘要等，由主进程序列化给模型 */
   context?: AiContextPayload
+  /** 请主进程附上市场看板（全球指数 + A股板块 + 轮动）。看板视图与产业轮动任务需要它 */
+  includeBoard?: boolean
 }
 
 export interface AiContextPayload {
@@ -134,6 +136,12 @@ export interface AiContextPayload {
   candles?: Candle[]
   news?: NewsItem[]
   watchlistQuotes?: Quote[]
+  /**
+   * 市场看板快照，只由主进程填充。
+   * 渲染进程传了也会被主进程覆盖——这些数字要进模型判断，不能来自不可信输入。
+   */
+  board?: MarketBoard
+  rotation?: SectorRotation
 }
 
 export interface AiStreamChunk {

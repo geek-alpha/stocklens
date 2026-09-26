@@ -1,4 +1,10 @@
-import type { AiAnalyzeRequest, AiChatMessage, AiContextPayload, Quote } from '@shared/types'
+import type {
+  AiAnalyzeRequest,
+  AiChatMessage,
+  AiContextPayload,
+  Quote,
+  SectorSnapshot
+} from '@shared/types'
 import { buildTechnicalSnapshot, type TechnicalSnapshot } from './indicators'
 
 /**
@@ -6,7 +12,7 @@ import { buildTechnicalSnapshot, type TechnicalSnapshot } from './indicators'
  * 原则——数字全部由主进程算好塞进去，模型只做解释与判断，不做算术。
  */
 
-const BASE_PERSONA = `你是一位有 15 年美股实战经验的资深交易员兼分析师，服务对象是专业散户。
+const BASE_PERSONA = `你是一位有 15 年 A股与美股实战经验的资深交易员兼分析师，熟悉全球资金流向与产业轮动，服务对象是专业散户。
 要求：
 1. 只依据我给你的数据说话，数据里没有的事实一律不要编造；确实需要补充时明确标注「需自行核实」。
 2. 每个结论都要给出依据（哪个指标、哪个价位、哪条新闻）。
@@ -86,6 +92,81 @@ function watchlistBlock(context: AiContextPayload | undefined): string {
     .join('\n')
 }
 
+function pct(n: number | null | undefined, digits = 2): string {
+  if (n == null || Number.isNaN(n)) return '—'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}%`
+}
+
+function sectorLine(s: SectorSnapshot): string {
+  const leader = s.leader ? `领涨 ${s.leader.name} ${pct(s.leader.changePercent)}` : '无领涨股'
+  return `${s.name}(${s.code}) ${pct(s.changePercent)} 超额${pct(s.relativeStrength)} 占比${fmt(
+    s.amountShare,
+    1
+  )}% ${leader}`
+}
+
+/**
+ * 看板块。数字全部由主进程算好，模型只做解释。
+ *
+ * 行业板块全给（49 个，是「资金主战场」的完整全景）；概念板块有 175 个且成分股高度重叠，
+ * 只给超额最强/最弱各 15 个，否则光这一块就几千 token。
+ */
+function boardBlock(context: AiContextPayload | undefined): string | null {
+  const board = context?.board
+  if (!board) return null
+
+  const lines: string[] = [
+    `交易日：${board.tradeDate}｜数据源：${board.source}`,
+    '',
+    '### 全球指数'
+  ]
+  for (const i of board.indices) {
+    lines.push(
+      `${i.region} ${i.name} ${fmt(i.price)} ${pct(i.changePercent)} 成交额${fmtBig(i.amount)}`
+    )
+  }
+
+  const byStrength = (a: SectorSnapshot, b: SectorSnapshot): number =>
+    (b.relativeStrength ?? 0) - (a.relativeStrength ?? 0)
+
+  lines.push('', `### A股行业板块（共 ${board.industries.length} 个，按超额收益从强到弱）`)
+  lines.push(`全市场成交额（行业合计）：${fmtBig(board.totalAmount)}`)
+  for (const s of [...board.industries].sort(byStrength)) lines.push(sectorLine(s))
+
+  const concepts = [...board.concepts].sort(byStrength)
+  lines.push(
+    '',
+    `### A股概念板块（共 ${concepts.length} 个，只列超额最强 15 / 最弱 15）`
+  )
+  for (const s of concepts.slice(0, 15)) lines.push(sectorLine(s))
+  lines.push('…（中间略）')
+  for (const s of concepts.slice(-15)) lines.push(sectorLine(s))
+
+  lines.push('', '### 资金主战场（行业成交额前 10）')
+  for (const s of [...board.industries].sort((a, b) => b.amount - a.amount).slice(0, 10)) {
+    lines.push(`${s.name} 占比${fmt(s.amountShare, 1)}% 成交额${fmtBig(s.amount)} ${pct(s.changePercent)}`)
+  }
+
+  const rotation = context?.rotation
+  if (rotation) {
+    const basisText =
+      rotation.basis === 'cumulative'
+        ? `近 20 日相对强度累计，已累积 ${rotation.historyDays} 个交易日`
+        : `单日超额收益，仅累积 ${rotation.historyDays} 个交易日`
+    lines.push('', `### 产业轮动（口径：${basisText}）`, '相对走强：')
+    for (const s of rotation.rising) lines.push(sectorLine(s))
+    lines.push('相对走弱：')
+    for (const s of rotation.falling) lines.push(sectorLine(s))
+    if (rotation.basis === 'single-day') {
+      lines.push(
+        '数据限制：历史不足 2 个交易日，单日超额分不清「持续走强」和「一日反弹」，不要据此断言产业趋势。'
+      )
+    }
+  }
+
+  return lines.join('\n')
+}
+
 function taskInstruction(req: AiAnalyzeRequest): string {
   const hasTech = Boolean(req.context?.candles?.length)
   switch (req.task) {
@@ -97,6 +178,8 @@ function taskInstruction(req: AiAnalyzeRequest): string {
       }`
     case 'news':
       return `【任务】新闻面解读。挑出对股价影响最大的 3 条，说明影响方向、力度与持续性，并指出哪些消息可能已被市场定价。`
+    case 'rotation':
+      return `【任务】产业轮动研判。基于下面的全球指数与 A股板块数据回答三件事：①当前资金在往哪些产业集中、从哪些产业撤出（成交额占比与超额收益一起看，不要只看涨跌幅）；②哪些变化有持续性证据、哪些只是单日噪音；③给出接下来 1-4 周值得跟踪的 3 个产业方向，每个方向写清触发条件与证伪信号。数据不足以支撑趋势判断时直接说不足。`
     case 'screen':
       return `【任务】智能选股。根据用户给出的条件，从下面自选股列表中筛选并排序，逐个给出入选理由与不符合的说明。条件里没提到的维度不要自己加。`
     case 'chat':
@@ -110,6 +193,13 @@ export function buildMessages(req: AiAnalyzeRequest): AiChatMessage[] {
   const snapshot = context?.candles?.length ? buildTechnicalSnapshot(context.candles) : null
 
   const sections: string[] = [taskInstruction(req)]
+
+  const board = boardBlock(context)
+  if (board) {
+    sections.push(`## 市场看板（全球指数 + A股板块全景）\n${board}`)
+  } else if (req.includeBoard) {
+    sections.push('## 市场看板\n（看板数据获取失败，本轮不要对板块与产业轮动作出判断）')
+  }
 
   if (context?.quote) {
     sections.push(`## 行情快照\n${quoteBlock(context.quote)}`)

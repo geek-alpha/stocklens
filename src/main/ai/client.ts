@@ -1,5 +1,13 @@
 import OpenAI from 'openai'
-import type { AiAnalyzeRequest, AiResult, AiStreamChunk, AppSettings } from '@shared/types'
+import type {
+  AiAnalyzeRequest,
+  AiContextPayload,
+  AiResult,
+  AiStreamChunk,
+  AppSettings,
+  MarketBoard,
+  SectorRotation
+} from '@shared/types'
 import { buildMessages } from './prompts'
 
 /**
@@ -11,7 +19,9 @@ export class AiService {
 
   constructor(
     private readonly settings: () => AppSettings,
-    private readonly emit: (chunk: AiStreamChunk) => void
+    private readonly emit: (chunk: AiStreamChunk) => void,
+    /** 看板数据按需加载：一次抓取要打三个接口，闲聊不该付这个成本 */
+    private readonly loadBoard?: () => Promise<{ board: MarketBoard; rotation: SectorRotation }>
   ) {}
 
   async analyze(req: AiAnalyzeRequest): Promise<AiResult> {
@@ -38,7 +48,7 @@ export class AiService {
           model: config.model,
           temperature: config.temperature,
           stream: true,
-          messages: buildMessages(req)
+          messages: buildMessages({ ...req, context: await this.resolveContext(req) })
         },
         { signal: controller.signal }
       )
@@ -58,6 +68,20 @@ export class AiService {
       return { requestId: req.requestId, ok: false, error: message }
     } finally {
       this.controllers.delete(req.requestId)
+    }
+  }
+
+  /**
+   * 看板数据由主进程现取，不用渲染进程传的。
+   * 取失败时降级成无看板数据，由提示词明确告知模型——不能让模型把「没拿到数据」当成「没有异动」。
+   */
+  private async resolveContext(req: AiAnalyzeRequest): Promise<AiContextPayload | undefined> {
+    if (!req.includeBoard || !this.loadBoard) return req.context
+    try {
+      const { board, rotation } = await this.loadBoard()
+      return { ...req.context, board, rotation }
+    } catch {
+      return req.context
     }
   }
 

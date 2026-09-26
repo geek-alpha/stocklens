@@ -17,6 +17,7 @@
     "verify:market": "tsc -p tools/tsconfig.verify.json && node tools/verify-market-parse.mjs",
     "verify:board": "tsc -p tools/tsconfig.verify.json && node tools/verify-board-parse.mjs",
     "verify:board:live": "tsc -p tools/tsconfig.verify.json && node tools/verify-board-live.mjs",
+    "snapshot:board": "tsc -p tools/tsconfig.verify.json && node tools/snapshot-board.mjs",
     "dist:dir": "npm run build && electron-builder --dir --config electron-builder.yml",
     "dist:win": "npm run build && electron-builder --win --config electron-builder.yml"
   },
