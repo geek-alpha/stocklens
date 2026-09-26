@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
-import type { AiProviderKind, AppSettings } from '@shared/types'
-import { errorMessage } from '@renderer/lib/api'
+import type { AiConnectionCheck, AiProviderKind, AppSettings } from '@shared/types'
+import { api, errorMessage } from '@renderer/lib/api'
 import { useAppStore } from '@renderer/store/useAppStore'
 
 const PROVIDER_PRESETS: Record<AiProviderKind, { label: string; baseUrl: string; model: string }> = {
@@ -36,9 +36,14 @@ export default function SettingsDialog() {
 
   const [draft, setDraft] = useState<AppSettings | null>(settings)
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<AiConnectionCheck | null>(null)
 
   useEffect(() => {
-    if (open) setDraft(settings)
+    if (open) {
+      setDraft(settings)
+      setTestResult(null)
+    }
   }, [open, settings])
 
   useEffect(() => {
@@ -63,6 +68,23 @@ export default function SettingsDialog() {
   const changeProvider = (kind: AiProviderKind): void => {
     const preset = PROVIDER_PRESETS[kind]
     patchAi({ kind, baseUrl: preset.baseUrl, model: preset.model })
+  }
+
+  const testConnection = async (): Promise<void> => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      setTestResult(await api.aiTest(draft.ai))
+    } catch (err) {
+      setTestResult({
+        ok: false,
+        message: errorMessage(err),
+        baseUrl: draft.ai.baseUrl,
+        model: draft.ai.model
+      })
+    } finally {
+      setTesting(false)
+    }
   }
 
   const save = async (): Promise<void> => {
@@ -188,15 +210,46 @@ export default function SettingsDialog() {
 
             <div className="space-y-1">
               <label className="text-[11px] text-slate-500">
-                API Key（本地加密保存，界面只显示掩码）
+                API Key（本地加密保存，界面只显示掩码；留空表示不改动已存的密钥）
               </label>
               <input
                 value={draft.ai.apiKey}
                 onChange={(event) => patchAi({ apiKey: event.target.value })}
+                onFocus={() => {
+                  // 掩码只是占位：不清掉的话新密钥会被粘在掩码后面，保存时被当成「没改」
+                  if (draft.ai.apiKey.includes('****')) patchAi({ apiKey: '' })
+                }}
                 placeholder="sk-..."
                 className={inputClass}
               />
             </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={testing}
+                onClick={() => void testConnection()}
+                className="rounded border border-surface-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-slate-100 disabled:opacity-50"
+              >
+                {testing ? '测试中…' : '测试连接'}
+              </button>
+              {testResult ? (
+                <span
+                  className={`text-[11px] ${testResult.ok ? 'text-emerald-400' : 'text-rose-400'}`}
+                >
+                  {testResult.ok ? '✓ ' : '✕ '}
+                  {testResult.message}
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-600">填好 Key 后点这里验证是否生效</span>
+              )}
+            </div>
+
+            {testResult && !testResult.ok && (
+              <p className="text-[10px] text-slate-600">
+                实际请求：{testResult.baseUrl || '默认端点'} · {testResult.model || '未填模型名'}
+              </p>
+            )}
 
             <div className="flex items-center gap-3">
               <label className="text-[11px] text-slate-500">温度 {draft.ai.temperature.toFixed(1)}</label>

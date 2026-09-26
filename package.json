@@ -1,6 +1,6 @@
 {
   "name": "stocklens",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "StockLens - 美股实时看盘与 AI 决策辅助终端",
   "main": "./out/main/index.js",
   "author": "StockLens",
@@ -14,6 +14,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "check": "npm run typecheck && npm run build",
+    "verify:ai-key": "node tools/verify-ai-key.mjs",
     "verify:market": "tsc -p tools/tsconfig.verify.json && node tools/verify-market-parse.mjs",
     "verify:board": "tsc -p tools/tsconfig.verify.json && node tools/verify-board-parse.mjs",
     "verify:board:live": "tsc -p tools/tsconfig.verify.json && node tools/verify-board-live.mjs",

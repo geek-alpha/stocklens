@@ -11,6 +11,7 @@ export const IPC = {
   settingsSet: 'app:settings:set',
   licenseGet: 'license:get',
   licenseActivate: 'license:activate',
+  aiTest: 'ai:test',
   aiAnalyze: 'ai:analyze',
   aiCancel: 'ai:cancel',
   appInfo: 'app:info'

@@ -1,6 +1,8 @@
 import OpenAI from 'openai'
 import type {
   AiAnalyzeRequest,
+  AiConnectionCheck,
+  AiConfig,
   AiContextPayload,
   AiResult,
   AiStreamChunk,
@@ -82,6 +84,39 @@ export class AiService {
       return { ...req.context, board, rotation }
     } catch {
       return req.context
+    }
+  }
+
+  /**
+   * 连通性自检：发一条最小请求，验证 Key / Base URL / 模型三者是否真能跑通。
+   * 设置面板的「测试连接」走这里，避免填完 Key 只能靠发一句问题才知道有没有生效。
+   */
+  async testConnection(override?: Partial<AiConfig>): Promise<AiConnectionCheck> {
+    const config = { ...this.settings().ai, ...override }
+    const baseUrl = config.baseUrl.trim() || 'https://api.openai.com/v1'
+    const model = config.model.trim()
+    if (!config.apiKey.trim()) {
+      return { ok: false, message: '还没填 API Key', baseUrl, model }
+    }
+    if (!model) {
+      return { ok: false, message: '还没填模型名，例如 gpt-4o-mini', baseUrl, model }
+    }
+    try {
+      const client = new OpenAI({
+        apiKey: config.apiKey,
+        baseURL: baseUrl,
+        timeout: 20_000,
+        maxRetries: 0
+      })
+      await client.chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+        stream: false
+      })
+      return { ok: true, message: `${model} 已响应，配置生效`, baseUrl, model }
+    } catch (err) {
+      return { ok: false, message: normalizeAiError(err), baseUrl, model }
     }
   }
 

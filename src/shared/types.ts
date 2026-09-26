@@ -82,6 +82,14 @@ export interface AiConfig {
   temperature: number
 }
 
+/** AI 连通性自检结果；回带 baseUrl/model，方便用户核对实际用的是哪套配置 */
+export interface AiConnectionCheck {
+  ok: boolean
+  message: string
+  baseUrl: string
+  model: string
+}
+
 export interface AppSettings {
   /** auto=国内直连优先（腾讯/东财）并自动降级；yahoo/finnhub=指定源优先 */
   dataProvider: 'auto' | 'yahoo' | 'finnhub'

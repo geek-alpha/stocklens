@@ -70,8 +70,32 @@ export function maskSecret(secret: string): string {
   return `${secret.slice(0, 3)}${MASK}${secret.slice(-4)}`
 }
 
-function looksMasked(value: string): boolean {
-  return value.includes(MASK)
+/** 掩码只有两种形状：极短密钥整体打码，或「前 3 位 + **** + 后 4 位」 */
+export function isMaskShape(value: string): boolean {
+  return value === MASK || /^.{3}\*{4}.{4}$/.test(value)
+}
+
+/**
+ * 判断渲染层传来的密钥该用新值还是沿用旧值。
+ * 按掩码「形状」判定而不是 `includes('****')`：用户把新密钥粘在掩码后面时，
+ * 旧判定会把它当成「没改」而静默沿用旧值——现象就是填了新 Key 却始终不生效。
+ */
+function resolveSecretInput(incoming: string, current: string, label: string): string {
+  const value = incoming.trim()
+  if (!value.includes('*')) return value
+  if (isMaskShape(value)) return current
+  throw new Error(`${label}里混进了掩码字符，请清空输入框后重新粘贴完整密钥`)
+}
+
+/** 历史版本把已加密的值又加密了一层（enc:enc:…），读的时候循环剥干净 */
+function unwrapSecret(stored: string): string {
+  let value = stored
+  for (let i = 0; i < 4; i++) {
+    const next = decryptSecret(value)
+    if (next === value) break
+    value = next
+  }
+  return value
 }
 
 /** 明文配置，仅供主进程内部（网络请求、AI 调用）使用 */
@@ -80,7 +104,7 @@ export function getSettings(): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...raw,
-    ai: { ...DEFAULT_AI, ...raw?.ai },
+    ai: { ...DEFAULT_AI, ...raw?.ai, apiKey: unwrapSecret(raw?.ai?.apiKey ?? '') },
     finnhubKey: decryptSecret(raw?.finnhubKey ?? ''),
     watchlist: raw?.watchlist?.length ? raw.watchlist : DEFAULT_SETTINGS.watchlist
   }
@@ -104,12 +128,12 @@ export function saveSettings(patch: Partial<AppSettings>): AppSettings {
     ai: { ...current.ai, ...(patch.ai ?? {}) }
   }
 
-  // 掩码值代表「用户没改这一项」，沿用已存的明文，避免把掩码写进配置
-  if (patch.finnhubKey !== undefined && looksMasked(patch.finnhubKey)) {
-    merged.finnhubKey = current.finnhubKey
+  // 掩码值代表「用户没改这一项」，沿用已存的明文；掩码混进新密钥则直接报错，不静默丢弃
+  if (patch.finnhubKey !== undefined) {
+    merged.finnhubKey = resolveSecretInput(patch.finnhubKey, current.finnhubKey, 'Finnhub Key')
   }
-  if (patch.ai?.apiKey !== undefined && looksMasked(patch.ai.apiKey)) {
-    merged.ai.apiKey = current.ai.apiKey
+  if (patch.ai?.apiKey !== undefined) {
+    merged.ai.apiKey = resolveSecretInput(patch.ai.apiKey, current.ai.apiKey, 'AI API Key')
   }
 
   store.set('settings', {

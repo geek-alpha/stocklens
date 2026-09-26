@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { IPC, IPC_PUSH } from '@shared/ipc'
 import type {
   AiAnalyzeRequest,
+  AiConfig,
   AiTask,
   AppInfo,
   AppSettings,
@@ -12,7 +13,7 @@ import { AiService } from './ai/client'
 import { activateLicense, getLicenseState } from './license'
 import { MarketService } from './market'
 import { MarketBoardService } from './market/board'
-import { getPublicSettings, getSettings, saveSettings } from './store'
+import { getPublicSettings, getSettings, isMaskShape, saveSettings } from './store'
 
 const VALID_INTERVALS: BarInterval[] = ['1m', '5m', '15m', '30m', '1h', '1d', '1wk', '1mo']
 const VALID_RANGES: BarRange[] = ['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'max']
@@ -29,6 +30,21 @@ function sanitizeContext(value: unknown): AiAnalyzeRequest['context'] {
   if (!value || typeof value !== 'object') return undefined
   const { board: _board, rotation: _rotation, ...rest } = value as Record<string, unknown>
   return rest as AiAnalyzeRequest['context']
+}
+
+/** 测试连接允许带上未保存的草稿；草稿里的 Key 若是掩码（用户没动过），回落到已存的明文 */
+function sanitizeAiDraft(value: unknown): Partial<AiConfig> {
+  const saved = getSettings().ai
+  if (!value || typeof value !== 'object') return {}
+  const draft = value as Partial<AiConfig>
+  const key = typeof draft.apiKey === 'string' ? draft.apiKey.trim() : ''
+  const baseUrl = typeof draft.baseUrl === 'string' ? draft.baseUrl.trim() : ''
+  const model = typeof draft.model === 'string' ? draft.model.trim() : ''
+  return {
+    apiKey: key && !isMaskShape(key) ? key : saved.apiKey,
+    baseUrl: baseUrl || saved.baseUrl,
+    model: model || saved.model
+  }
 }
 
 /**
@@ -126,6 +142,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (typeof key !== 'string' || !key.trim()) throw new Error('请输入许可证密钥')
     return activateLicense(key, typeof licensee === 'string' ? licensee : '')
   })
+
+  ipcMain.handle(IPC.aiTest, (_event, draft: unknown) => ai.testConnection(sanitizeAiDraft(draft)))
 
   ipcMain.handle(IPC.aiAnalyze, async (_event, req: unknown) => {
     if (!req || typeof req !== 'object') throw new Error('参数错误：AI 请求体不合法')

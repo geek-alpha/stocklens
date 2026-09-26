@@ -1,5 +1,7 @@
 import type {
   AiAnalyzeRequest,
+  AiConnectionCheck,
+  AiConfig,
   AiResult,
   AiStreamChunk,
   AppInfo,
@@ -40,6 +42,9 @@ export interface StockLensApi {
 
   getLicense(): Promise<LicenseState>
   activateLicense(key: string, licensee: string): Promise<LicenseState>
+
+  /** AI 连通性自检：验证 Key / Base URL / 模型能否真的跑通；可带未保存的草稿 */
+  aiTest(draft?: Partial<AiConfig>): Promise<AiConnectionCheck>
 
   aiAnalyze(req: AiAnalyzeRequest): Promise<AiResult>
   aiCancel(requestId: string): Promise<void>

@@ -41,6 +41,8 @@ const api: StockLensApi = {
   getLicense: () => invoke(IPC.licenseGet),
   activateLicense: (key, licensee) => invoke(IPC.licenseActivate, key, licensee),
 
+  aiTest: (draft) => invoke(IPC.aiTest, draft),
+
   aiAnalyze: (req) => invoke(IPC.aiAnalyze, req),
   aiCancel: (requestId) => invoke(IPC.aiCancel, requestId),
 

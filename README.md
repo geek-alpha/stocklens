@@ -165,9 +165,10 @@ node tools/sign-license.mjs --licensee "某某公司" --plan lifetime --machine 
 | --- | --- |
 | 服务商 | OpenAI / DeepSeek / Moonshot / 自定义 |
 | Base URL | 任何 OpenAI 兼容端点，例如自建网关 `https://your-gateway/v1` |
-| API Key | 本地加密保存，读取时只返回掩码 |
+| API Key | 本地加密保存，界面只返回掩码；留空表示不改动已存的密钥 |
 | 模型 | 例如 `gpt-4o-mini`、`deepseek-chat` |
 | 温度 | 0 最保守，1 最发散；盘面分析建议 0.2–0.4 |
+| 测试连接 | 点一下就用最小请求验证 Key / Base URL / 模型是否真的跑通，不必先发一句问题试探 |
 
 若要让客户开箱即用而不填 Key，可以自建一个中转网关，把 Key 放在网关侧——注意这时需要额外的用量控制与鉴权，否则会被刷。
 
